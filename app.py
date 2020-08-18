@@ -1,6 +1,8 @@
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import configparser
+import asyncio_redis
+import asyncio
 
 dev_config = configparser.ConfigParser()
 dev_config.read('settings_dev.ini')  # Change this to 'settings_example.ini' with your credentials
@@ -18,17 +20,23 @@ class SpotifyClient:
         )
 
     @staticmethod
-    def _collect_tracks(query_result: dict):
+    async def _collect_tracks(query_result: dict):
+        redis_connection_pool = await asyncio_redis.Pool.create(host='localhost', port=6379, poolsize=30)
         for item in query_result['items']:
             artists_names = [x['name'] for x in item['track']['artists']]
-            print(artists_names, item['track']['name'])
+            await redis_connection_pool.set(f'{artists_names}', item['track']['name'])
+            saved_tracks = await redis_connection_pool.get(f'{artists_names}')
+            print(saved_tracks)
+            # print(artists_names, item['track']['name'])
+        redis_connection_pool.close()
 
-    def list_duplicate_tracks(self):
+    async def list_duplicate_tracks(self):
         query_result = self.user.current_user_saved_tracks(limit=50)
-        self._collect_tracks(query_result)
+        await self._collect_tracks(query_result)
         while query_result['next']:
             query_result = self.user.next(query_result)
-            self._collect_tracks(query_result)
+            await self._collect_tracks(query_result)
 
 
-SpotifyClient().list_duplicate_tracks()
+loop = asyncio.get_event_loop()
+loop.run_until_complete(SpotifyClient().list_duplicate_tracks())
